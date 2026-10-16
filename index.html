@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aplikasi Rekap Kehadiran & Pelanggaran Siswa</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyA8P6caetfyh7Q5Iky1qHMA3S7-nbQAV-4",
+    authDomain: "kehadiran-aedce.firebaseapp.com",
+    databaseURL: "https://kehadiran-aedce-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "kehadiran-aedce",
+    storageBucket: "kehadiran-aedce.firebasestorage.app",
+    messagingSenderId: "724568398330",
+    appId: "1:724568398330:web:734a0878d18b089c02ec43"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+    const dbFirestore = firebase.firestore();
+</script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -23,81 +44,85 @@
     </div>
 
     <script>
-        const STORAGE_KEYS = {
-            STUDENTS: 'istar_students_v1',
-            GURU_PIKET: 'istar_guru_v1',
-            VIOLATION_RULES: 'istar_rules_v1',
-            ATTENDANCE: 'istar_attendance_v1',
-            VIOLATIONS: 'istar_violations_v1',
-            SESSION: 'istar_session_v1',
-            SETTINGS: 'istar_settings_v1'
-        };
+function initFirestoreSync() {
+        Object.values(STORAGE_KEYS).forEach(key => {
+            dbFirestore.collection('istar_data').doc(key).onSnapshot((doc) => {
+                if (doc.exists) {
+                    localCache[key] = doc.data().value;
+                } else {
+                    // Jika dokumen belum ada di Firestore, buat data default
+                    let defaultData = getDefaultValueForKey(key);
+                    dbFirestore.collection('istar_data').doc(key).set({ value: defaultData });
+                    localCache[key] = defaultData;
+                }
+                render();
+            });
+        });
+    }
 
-        function getInitialData() {
-            if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {
-                localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify({
-                    appName: 'Sistem Piket & Absensi ISTAR',
-                    schoolName: 'ISTAR Sekolah'
-                }));
-            }
-            if (!localStorage.getItem(STORAGE_KEYS.STUDENTS)) {
-                localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify([
+    function getDefaultValueForKey(key) {
+        switch(key) {
+            case STORAGE_KEYS.SETTINGS:
+                return { appName: 'Sistem Piket & Absensi ISTAR', schoolName: 'ISTAR Sekolah' };
+            case STORAGE_KEYS.STUDENTS:
+                return [
                     { nisn: '1001', name: 'Ahmad Fauzi', className: '10 IPA 1', password: '123' },
-                    { nisn: '1002', name: 'Siti Rahma', className: '10 IPA 1', password: '123' },
-                    { nisn: '1003', name: 'Budi Santoso', className: '10 IPS 1', password: '123' },
-                    { nisn: '1004', name: 'Dewi Lestari', className: '10 IPS 1', password: '123' }
-                ]));
-            }
-            if (!localStorage.getItem(STORAGE_KEYS.GURU_PIKET)) {
-                localStorage.setItem(STORAGE_KEYS.GURU_PIKET, JSON.stringify([
-                    { code: 'GP01', name: 'Drs. H. Mulyana', password: 'gp1' },
-                    { code: 'GP02', name: 'Sri Wahyuni, S.Pd', password: 'gp2' }
-                ]));
-            }
-            if (!localStorage.getItem(STORAGE_KEYS.VIOLATION_RULES)) {
-                localStorage.setItem(STORAGE_KEYS.VIOLATION_RULES, JSON.stringify([
-                    { id: 1, name: 'Terlambat hadir ke sekolah (> 15 menit)', points: 10 },
-                    { id: 2, name: 'Atribut seragam tidak lengkap', points: 15 },
-                    { id: 3, name: 'Tidak mengikuti Upacara Bendera', points: 20 },
-                    { id: 4, name: 'Membolos / Tanpa Keterangan', points: 30 },
-                    { id: 5, name: 'Merokok di lingkungan sekolah', points: 75 }
-                ]));
-            }
-            if (!localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) {
-                localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify([
-                    { id: 'a1', nisn: '1001', date: '2026-06-01', status: 'Hadir', notes: '', guruCode: 'GP01', guruName: 'Drs. H. Mulyana' },
-                    { id: 'a2', nisn: '1002', date: '2026-06-01', status: 'Sakit', notes: 'Surat dokter terlampir', guruCode: 'GP01', guruName: 'Drs. H. Mulyana' },
-                    { id: 'a3', nisn: '1003', date: '2026-06-01', status: 'Alpha', notes: '', guruCode: 'GP02', guruName: 'Sri Wahyuni, S.Pd' }
-                ]));
-            }
-            if (!localStorage.getItem(STORAGE_KEYS.VIOLATIONS)) {
-                localStorage.setItem(STORAGE_KEYS.VIOLATIONS, JSON.stringify([
-                    { id: 'v1', nisn: '1003', ruleId: 1, date: '2026-06-01', note: 'Terlambat masuk gerbang', guruCode: 'GP02', guruName: 'Sri Wahyuni, S.Pd' }
-                ]));
-            }
-            if (!localStorage.getItem(STORAGE_KEYS.SESSION)) {
-                localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify({ role: null, user: null }));
-            }
+                    { nisn: '1002', name: 'Siti Rahma', className: '10 IPA 1', password: '123' }
+                ];
+            case STORAGE_KEYS.GURU_PIKET:
+                return [{ code: 'GP01', name: 'Drs. H. Mulyana', password: 'gp1' }];
+            case STORAGE_KEYS.VIOLATION_RULES:
+                return [{ id: 1, name: 'Terlambat hadir ke sekolah (> 15 menit)', points: 10 }];
+            default:
+                return [];
         }
-        getInitialData();
+    }
 
-        const db = {
-            getSettings: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)) || { appName: 'Sistem Piket & Absensi ISTAR', schoolName: 'ISTAR Sekolah' },
-            setSettings: (s) => localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(s)),
-            getStudents: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.STUDENTS)) || [],
-            setStudents: (d) => localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(d)),
-            getGuru: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.GURU_PIKET)) || [],
-            setGuru: (d) => localStorage.setItem(STORAGE_KEYS.GURU_PIKET, JSON.stringify(d)),
-            getRules: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.VIOLATION_RULES)) || [],
-            setRules: (d) => localStorage.setItem(STORAGE_KEYS.VIOLATION_RULES, JSON.stringify(d)),
-            getAttendance: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) || [],
-            setAttendance: (d) => localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(d)),
-            getViolations: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.VIOLATIONS)) || [],
-            setViolations: (d) => localStorage.setItem(STORAGE_KEYS.VIOLATIONS, JSON.stringify(d)),
-            getSession: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSION)) || { role: null, user: null },
-            setSession: (s) => localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(s))
-        };
+    initFirestoreSync();
 
+const db = {
+        getSettings: () => localCache[STORAGE_KEYS.SETTINGS],
+        setSettings: (s) => {
+            localCache[STORAGE_KEYS.SETTINGS] = s;
+            dbFirestore.collection('istar_data').doc(STORAGE_KEYS.SETTINGS).set({ value: s });
+        },
+
+        getStudents: () => localCache[STORAGE_KEYS.STUDENTS] || [],
+        setStudents: (d) => {
+            localCache[STORAGE_KEYS.STUDENTS] = d;
+            dbFirestore.collection('istar_data').doc(STORAGE_KEYS.STUDENTS).set({ value: d });
+        },
+
+        getGuru: () => localCache[STORAGE_KEYS.GURU_PIKET] || [],
+        setGuru: (d) => {
+            localCache[STORAGE_KEYS.GURU_PIKET] = d;
+            dbFirestore.collection('istar_data').doc(STORAGE_KEYS.GURU_PIKET).set({ value: d });
+        },
+
+        getRules: () => localCache[STORAGE_KEYS.VIOLATION_RULES] || [],
+        setRules: (d) => {
+            localCache[STORAGE_KEYS.VIOLATION_RULES] = d;
+            dbFirestore.collection('istar_data').doc(STORAGE_KEYS.VIOLATION_RULES).set({ value: d });
+        },
+
+        getAttendance: () => localCache[STORAGE_KEYS.ATTENDANCE] || [],
+        setAttendance: (d) => {
+            localCache[STORAGE_KEYS.ATTENDANCE] = d;
+            dbFirestore.collection('istar_data').doc(STORAGE_KEYS.ATTENDANCE).set({ value: d });
+        },
+
+        getViolations: () => localCache[STORAGE_KEYS.VIOLATIONS] || [],
+        setViolations: (d) => {
+            localCache[STORAGE_KEYS.VIOLATIONS] = d;
+            dbFirestore.collection('istar_data').doc(STORAGE_KEYS.VIOLATIONS).set({ value: d });
+        },
+
+        getSession: () => localCache[STORAGE_KEYS.SESSION] || { role: null, user: null },
+        setSession: (s) => {
+            localCache[STORAGE_KEYS.SESSION] = s;
+            localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(s));
+        }
+    };
         let modalState = { show: false, title: '', message: '', type: 'info', onConfirm: null };
 
         function showModal(title, message, type = 'info', onConfirm = null) {
