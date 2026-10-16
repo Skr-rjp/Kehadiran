@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Rekap Kehadiran & Pelanggaran Siswa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-800 flex flex-col antialiased">
+
+    <div id="app" class="flex-1 flex flex-col h-full">
+        <!-- Rendered dynamically via JS -->
+    </div>
+
+    <script>
+        const STORAGE_KEYS = {
+            STUDENTS: 'istar_students_v1',
+            GURU_PIKET: 'istar_guru_v1',
+            VIOLATION_RULES: 'istar_rules_v1',
+            ATTENDANCE: 'istar_attendance_v1',
+            VIOLATIONS: 'istar_violations_v1',
+            SESSION: 'istar_session_v1',
+            SETTINGS: 'istar_settings_v1'
+        };
+
+        function getInitialData() {
+            if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {
+                localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify({
+                    appName: 'Sistem Piket & Absensi ISTAR',
+                    schoolName: 'ISTAR Sekolah'
+                }));
+            }
+            if (!localStorage.getItem(STORAGE_KEYS.STUDENTS)) {
+                localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify([
+                    { nisn: '1001', name: 'Ahmad Fauzi', className: '10 IPA 1', password: '123' },
+                    { nisn: '1002', name: 'Siti Rahma', className: '10 IPA 1', password: '123' },
+                    { nisn: '1003', name: 'Budi Santoso', className: '10 IPS 1', password: '123' },
+                    { nisn: '1004', name: 'Dewi Lestari', className: '10 IPS 1', password: '123' }
+                ]));
+            }
+            if (!localStorage.getItem(STORAGE_KEYS.GURU_PIKET)) {
+                localStorage.setItem(STORAGE_KEYS.GURU_PIKET, JSON.stringify([
+                    { code: 'GP01', name: 'Drs. H. Mulyana', password: 'gp1' },
+                    { code: 'GP02', name: 'Sri Wahyuni, S.Pd', password: 'gp2' }
+                ]));
+            }
+            if (!localStorage.getItem(STORAGE_KEYS.VIOLATION_RULES)) {
+                localStorage.setItem(STORAGE_KEYS.VIOLATION_RULES, JSON.stringify([
+                    { id: 1, name: 'Terlambat hadir ke sekolah (> 15 menit)', points: 10 },
+                    { id: 2, name: 'Atribut seragam tidak lengkap', points: 15 },
+                    { id: 3, name: 'Tidak mengikuti Upacara Bendera', points: 20 },
+                    { id: 4, name: 'Membolos / Tanpa Keterangan', points: 30 },
+                    { id: 5, name: 'Merokok di lingkungan sekolah', points: 75 }
+                ]));
+            }
+            if (!localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) {
+                localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify([
+                    { id: 'a1', nisn: '1001', date: '2026-06-01', status: 'Hadir', notes: '', guruCode: 'GP01', guruName: 'Drs. H. Mulyana' },
+                    { id: 'a2', nisn: '1002', date: '2026-06-01', status: 'Sakit', notes: 'Surat dokter terlampir', guruCode: 'GP01', guruName: 'Drs. H. Mulyana' },
+                    { id: 'a3', nisn: '1003', date: '2026-06-01', status: 'Alpha', notes: '', guruCode: 'GP02', guruName: 'Sri Wahyuni, S.Pd' }
+                ]));
+            }
+            if (!localStorage.getItem(STORAGE_KEYS.VIOLATIONS)) {
+                localStorage.setItem(STORAGE_KEYS.VIOLATIONS, JSON.stringify([
+                    { id: 'v1', nisn: '1003', ruleId: 1, date: '2026-06-01', note: 'Terlambat masuk gerbang', guruCode: 'GP02', guruName: 'Sri Wahyuni, S.Pd' }
+                ]));
+            }
+            if (!localStorage.getItem(STORAGE_KEYS.SESSION)) {
+                localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify({ role: null, user: null }));
+            }
+        }
+        getInitialData();
+
+        const db = {
+            getSettings: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)) || { appName: 'Sistem Piket & Absensi ISTAR', schoolName: 'ISTAR Sekolah' },
+            setSettings: (s) => localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(s)),
+            getStudents: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.STUDENTS)) || [],
+            setStudents: (d) => localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(d)),
+            getGuru: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.GURU_PIKET)) || [],
+            setGuru: (d) => localStorage.setItem(STORAGE_KEYS.GURU_PIKET, JSON.stringify(d)),
+            getRules: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.VIOLATION_RULES)) || [],
+            setRules: (d) => localStorage.setItem(STORAGE_KEYS.VIOLATION_RULES, JSON.stringify(d)),
+            getAttendance: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) || [],
+            setAttendance: (d) => localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(d)),
+            getViolations: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.VIOLATIONS)) || [],
+            setViolations: (d) => localStorage.setItem(STORAGE_KEYS.VIOLATIONS, JSON.stringify(d)),
+            getSession: () => JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSION)) || { role: null, user: null },
+            setSession: (s) => localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(s))
+        };
+
+        let modalState = { show: false, title: '', message: '', type: 'info', onConfirm: null };
+
+        function showModal(title, message, type = 'info', onConfirm = null) {
+            modalState = { show: true, title, message, type, onConfirm };
+            render();
+        }
+
+        function closeModal() {
+            modalState = { show: false, title: '', message: '', type: 'info', onConfirm: null };
+            render();
+        }
+
+        let currentTab = 'dashboard';
+        let activeLoginRole = 'admin';
+        
+        // Guru filter & tab state
+        let guruSelectedClass = '';
+        let guruSelectedDate = new Date().toISOString().split('T')[0];
+        let guruActiveTab = 'entry'; // 'entry' | 'recap'
+
+        let recapFilter = {
+            class: '',
+            type: 'monthly',
+            startDate: '',
+            endDate: ''
+        };
+
+        function setAdminTab(tabName) {
+            currentTab = tabName;
+            if (tabName === 'recap') {
+                const students = db.getStudents();
+                const classes = [...new Set(students.map(s => s.className))];
+                if (classes.length > 0 && !recapFilter.class) {
+                    recapFilter.class = classes[0];
+                }
+                setRecapPeriod('monthly');
+            }
+            render();
+        }
+
+        function setRecapPeriod(periodType) {
+            recapFilter.type = periodType;
+            const today = new Date();
+            let start = new Date();
+            let end = new Date();
+
+            if (periodType === 'weekly') {
+                start.setDate(today.getDate() - 6);
+            } else if (periodType === 'monthly') {
+                start = new Date(today.getFullYear(), today.getMonth(), 1);
+                end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            } else if (periodType === 'semester') {
+                const currentMonth = today.getMonth();
+                if (currentMonth >= 6) {
+                    start = new Date(today.getFullYear(), 6, 1);
+                    end = new Date(today.getFullYear(), 11, 31);
+                } else {
+                    start = new Date(today.getFullYear(), 0, 1);
+                    end = new Date(today.getFullYear(), 5, 30);
+                }
+            }
+
+            recapFilter.startDate = formatDateInput(start);
+            recapFilter.endDate = formatDateInput(end);
+            render();
+        }
+
+        function formatDateInput(dateObj) {
+            const yyyy = dateObj.getFullYear();
+            const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const dd = String(dateObj.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        function updateRecapFilter(field, value) {
+            recapFilter[field] = value;
+            if (field === 'startDate' || field === 'endDate') {
+                recapFilter.type = 'custom';
+            }
+            render();
+        }
+
+        function render() {
+            const session = db.getSession();
+            const appEl = document.getElementById('app');
+
+            if (!session.role) {
+                appEl.innerHTML = renderLoginView();
+                setLoginTab(activeLoginRole);
+            } else if (session.role === 'admin') {
+                appEl.innerHTML = renderAdminLayout(session.user);
+            } else if (session.role === 'guru') {
+                appEl.innerHTML = renderGuruLayout(session.user);
+            } else if (session.role === 'siswa') {
+                appEl.innerHTML = renderSiswaLayout(session.user);
+            }
+
+            if (modalState.show) {
+                appEl.innerHTML += renderModalComponent();
+            }
+
+            lucide.createIcons();
+        }
+
+        function renderLoginView() {
+            const settings = db.getSettings();
+            return `
+                <div class="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-950">
+                    <div class="max-w-md w-full bg-white/10 backdrop-blur-md rounded-2xl p-8 shadow-2xl border border-white/20 text-white">
+                        <div class="text-center mb-8">
+                            <div class="inline-flex p-4 bg-indigo-600 rounded-2xl shadow-lg mb-4">
+                                <i data-lucide="shield-check" class="w-10 h-10 text-white"></i>
+                            </div>
+                            <h1 class="text-2xl font-bold tracking-tight">${settings.appName}</h1>
+                            <p class="text-sm text-slate-300 mt-1">${settings.schoolName}</p>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div class="grid grid-cols-3 gap-2 bg-slate-800/80 p-1.5 rounded-xl border border-white/10 text-xs font-semibold">
+                                <button onclick="setLoginTab('admin')" id="tab-btn-admin" class="py-2.5 rounded-lg transition-all ${activeLoginRole === 'admin' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:text-white'}">Admin</button>
+                                <button onclick="setLoginTab('guru')" id="tab-btn-guru" class="py-2.5 rounded-lg transition-all ${activeLoginRole === 'guru' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:text-white'}">Guru Piket</button>
+                                <button onclick="setLoginTab('siswa')" id="tab-btn-siswa" class="py-2.5 rounded-lg transition-all ${activeLoginRole === 'siswa' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:text-white'}">Siswa</button>
+                            </div>
+
+                            <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4 pt-2">
+                                <div id="loginFields"></div>
+                                <button type="submit" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
+                                    <span>Masuk Sistem</span>
+                                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function setLoginTab(role) {
+            activeLoginRole = role;
+            document.querySelectorAll('[id^="tab-btn-"]').forEach(btn => {
+                btn.className = "py-2.5 rounded-lg transition-all text-slate-300 hover:text-white";
+            });
+            const activeBtn = document.getElementById(`tab-btn-${role}`);
+            if (activeBtn) activeBtn.className = "py-2.5 rounded-lg transition-all bg-indigo-600 text-white shadow";
+            
+            const fieldsContainer = document.getElementById('loginFields');
+            if (!fieldsContainer) return;
+
+            if (role === 'admin') {
+                fieldsContainer.innerHTML = `
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Password Admin</label>
+                        <div class="relative">
+                            <input type="password" id="adminPass" required placeholder="Masukkan password admin" class="w-full px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10">
+                            <button type="button" onclick="togglePasswordVisibility('adminPass', 'eyeAdmin')" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+                                <i id="eyeAdmin" data-lucide="eye" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (role === 'guru') {
+                fieldsContainer.innerHTML = `
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Kode Guru Piket</label>
+                            <input type="text" id="guruCodeInput" required placeholder="Masukkan Kode Guru (Cth: GP01)" class="w-full px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+                            <div class="relative">
+                                <input type="password" id="guruPass" required placeholder="Password guru" class="w-full px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10">
+                                <button type="button" onclick="togglePasswordVisibility('guruPass', 'eyeGuru')" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+                                    <i id="eyeGuru" data-lucide="eye" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (role === 'siswa') {
+                fieldsContainer.innerHTML = `
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">NISN Siswa</label>
+                            <input type="text" id="siswaNisnInput" required placeholder="Masukkan NISN Anda" class="w-full px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+                            <div class="relative">
+                                <input type="password" id="siswaPass" required placeholder="Password siswa" class="w-full px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10">
+                                <button type="button" onclick="togglePasswordVisibility('siswaPass', 'eyeSiswa')" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+                                    <i id="eyeSiswa" data-lucide="eye" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            lucide.createIcons();
+        }
+
+        function togglePasswordVisibility(fieldId, iconId) {
+            const inputField = document.getElementById(fieldId);
+            const iconElement = document.getElementById(iconId);
+            if (!inputField || !iconElement) return;
+            if (inputField.type === 'password') {
+                inputField.type = 'text';
+                iconElement.setAttribute('data-lucide', 'eye-off');
+            } else {
+                inputField.type = 'password';
+                iconElement.setAttribute('data-lucide', 'eye');
+            }
+            lucide.createIcons();
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            if (activeLoginRole === 'admin') {
+                const passField = document.getElementById('adminPass');
+                const pass = passField ? passField.value : '';
+                if (pass === 'ISTARATAS_061') {
+                    db.setSession({ role: 'admin', user: { name: 'Administrator' } });
+                    render();
+                } else {
+                    showModal('Login Gagal', 'Password Admin salah!', 'error');
+                }
+            } else if (activeLoginRole === 'guru') {
+                const codeField = document.getElementById('guruCodeInput');
+                const passField = document.getElementById('guruPass');
+                const code = codeField ? codeField.value.trim() : '';
+                const pass = passField ? passField.value : '';
+                const guruList = db.getGuru();
+                const found = guruList.find(g => g.code === code && g.password === pass);
+                if (found) {
+                    db.setSession({ role: 'guru', user: found });
+                    render();
+                } else {
+                    showModal('Login Gagal', 'Kode guru atau password salah!', 'error');
+                }
+            } else if (activeLoginRole === 'siswa') {
+                const nisnField = document.getElementById('siswaNisnInput');
+                const passField = document.getElementById('siswaPass');
+                const nisn = nisnField ? nisnField.value.trim() : '';
+                const pass = passField ? passField.value : '';
+                const studentList = db.getStudents();
+                const found = studentList.find(s => s.nisn === nisn && s.password === pass);
+                if (found) {
+                    db.setSession({ role: 'siswa', user: found });
+                    render();
+                } else {
+                    showModal('Login Gagal', 'NISN atau password siswa salah!', 'error');
+                }
+            }
+        }
+
+        function logout() {
+            db.setSession({ role: null, user: null });
+            currentTab = 'dashboard';
+            guruActiveTab = 'entry';
+            render();
+        }
+
+        function renderAdminLayout(user) {
+            const settings = db.getSettings();
+            return `
+                <div class="flex h-full w-full overflow-hidden">
+                    <div class="w-64 bg-slate-900 text-white flex flex-col border-r border-slate-800 shrink-0">
+                        <div class="p-6 border-b border-slate-800 flex items-center gap-3">
+                            <div class="p-2.5 bg-indigo-600 rounded-xl">
+                                <i data-lucide="shield" class="w-6 h-6 text-white"></i>
+                            </div>
+                            <div class="overflow-hidden">
+                                <h2 class="font-bold text-sm leading-tight truncate">${settings.appName}</h2>
+                                <p class="text-xs text-slate-400 truncate">${settings.schoolName}</p>
+                            </div>
+                        </div>
+                        <nav class="flex-1 p-4 space-y-1.5 overflow-y-auto custom-scrollbar text-sm">
+                            <button onclick="setAdminTab('dashboard')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${currentTab === 'dashboard' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
+                                <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+                                <span>Dashboard</span>
+                            </button>
+                            <button onclick="setAdminTab('settings')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${currentTab === 'settings' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
+                                <i data-lucide="settings" class="w-4 h-4"></i>
+                                <span>Pengaturan Identitas</span>
+                            </button>
+                            <button onclick="setAdminTab('students')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${currentTab === 'students' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
+                                <i data-lucide="users" class="w-4 h-4"></i>
+                                <span>Data Siswa</span>
+                            </button>
+                            <button onclick="setAdminTab('guru')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${currentTab === 'guru' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
+                                <i data-lucide="user-check" class="w-4 h-4"></i>
+                                <span>Data Guru Piket</span>
+                            </button>
+                            <button onclick="setAdminTab('violations')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${currentTab === 'violations' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
+                                <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                                <span>Aturan & Catatan Pelanggaran</span>
+                            </button>
+                            <button onclick="setAdminTab('recap')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${currentTab === 'recap' ? 'bg-indigo-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'}">
+                                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                                <span>Rekap & Unduh Excel</span>
+                            </button>
+                        </nav>
+                        <div class="p-4 border-t border-slate-800">
+                            <button onclick="logout()" class="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-rose-600/10 hover:bg-rose-600/20 text-rose-400 font-semibold rounded-xl transition-all text-sm border border-rose-600/20">
+                                <i data-lucide="log-out" class="w-4 h-4"></i>
+                                <span>Keluar Sistem</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+                        <header class="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
+                            <h1 class="text-lg font-bold text-slate-800 capitalize">${getAdminTitle()}</h1>
+                            <div class="flex items-center gap-3 text-sm font-medium text-slate-600">
+                                <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">A</div>
+                                <span>Administrator</span>
+                            </div>
+                        </header>
+                        <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                            ${renderAdminContent()}
+                        </main>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getAdminTitle() {
+            const titles = {
+                dashboard: 'Ringkasan Statistik',
+                settings: 'Pengaturan Nama Aplikasi & Sekolah',
+                students: 'Manajemen Data Siswa',
+                guru: 'Manajemen Akun Guru Piket',
+                violations: 'Aturan & Catatan Pelanggaran Siswa',
+                recap: 'Rekapitulasi & Unduh Laporan Excel'
+            };
+            return titles[currentTab] || 'Admin';
+        }
+
+        function handleSaveSettings(e) {
+            e.preventDefault();
+            const appName = document.getElementById('settingAppName').value.trim();
+            const schoolName = document.getElementById('settingSchoolName').value.trim();
+            if (appName && schoolName) {
+                db.setSettings({ appName, schoolName });
+                showModal('Berhasil', 'Identitas Aplikasi dan Sekolah berhasil diperbarui!', 'success');
+            }
+        }
+
+        function renderAdminContent() {
+            if (currentTab === 'dashboard') {
+                const students = db.getStudents();
+                const guru = db.getGuru();
+                const attendance = db.getAttendance();
+                const violations = db.getViolations();
+                return `
+                    <div class="space-y-6">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                <div class="p-4 bg-indigo-50 text-indigo-600 rounded-2xl"><i data-lucide="users" class="w-8 h-8"></i></div>
+                                <div><p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Total Siswa</p><h3 class="text-2xl font-bold text-slate-900">${students.length}</h3></div>
+                            </div>
+                            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                <div class="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><i data-lucide="user-check" class="w-8 h-8"></i></div>
+                                <div><p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Guru Piket</p><h3 class="text-2xl font-bold text-slate-900">${guru.length}</h3></div>
+                            </div>
+                            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                <div class="p-4 bg-sky-50 text-sky-600 rounded-2xl"><i data-lucide="calendar" class="w-8 h-8"></i></div>
+                                <div><p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Total Absensi Tercatat</p><h3 class="text-2xl font-bold text-slate-900">${attendance.length}</h3></div>
+                            </div>
+                            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                <div class="p-4 bg-rose-50 text-rose-600 rounded-2xl"><i data-lucide="alert-triangle" class="w-8 h-8"></i></div>
+                                <div><p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Total Pelanggaran</p><h3 class="text-2xl font-bold text-slate-900">${violations.length}</h3></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (currentTab === 'settings') {
+                const settings = db.getSettings();
+                return `
+                    <div class="max-w-2xl bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+                        <div>
+                            <h3 class="font-bold text-base text-slate-900">Pengaturan Identitas Aplikasi & Sekolah</h3>
+                            <p class="text-xs text-slate-500 mt-1">Ubah nama aplikasi dan nama sekolah yang ditampilkan di seluruh sistem dan halaman login.</p>
+                        </div>
+                        <form onsubmit="handleSaveSettings(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Nama Aplikasi</label>
+                                <input type="text" id="settingAppName" value="${settings.appName}" required class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Nama Sekolah / Instansi</label>
+                                <input type="text" id="settingSchoolName" value="${settings.schoolName}" required class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <button type="submit" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold shadow transition-all flex items-center gap-2">
+                                <i data-lucide="save" class="w-4 h-4"></i>
+                                <span>Simpan Perubahan</span>
+                            </button>
+                        </form>
+                    </div>
+                `;
+            } else if (currentTab === 'students') {
+                const students = db.getStudents();
+                return `
+                    <div class="space-y-6">
+                        <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                            <div>
+                                <h3 class="font-bold text-base text-slate-900">Daftar Akun Siswa</h3>
+                                <p class="text-xs text-slate-500">Tambah, hapus, atau import/export data siswa dengan mudah.</p>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button onclick="downloadStudentTemplate()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-medium shadow transition-all flex items-center gap-2">
+                                    <i data-lucide="download" class="w-4 h-4"></i>
+                                    <span>Download Template Excel</span>
+                                </button>
+                                <label class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium shadow transition-all cursor-pointer flex items-center gap-2">
+                                    <i data-lucide="upload" class="w-4 h-4"></i>
+                                    <span>Upload Excel Siswa</span>
+                                    <input type="file" accept=".xlsx, .xls, .csv" onchange="handleStudentUpload(event)" class="hidden">
+                                </label>
+                                <button onclick="openAddStudentModal()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-medium shadow transition-all flex items-center gap-2">
+                                    <i data-lucide="user-plus" class="w-4 h-4"></i>
+                                    <span>Tambah Manual</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse text-sm">
+                                    <thead>
+                                        <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                                            <th class="p-4">NISN</th>
+                                            <th class="p-4">Nama Lengkap</th>
+                                            <th class="p-4">Kelas</th>
+                                            <th class="p-4">Password</th>
+                                            <th class="p-4 text-center">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        ${students.length === 0 ? '<tr><td colspan="5" class="p-8 text-center text-slate-400">Belum ada data siswa.</td></tr>' : ''}
+                                        ${students.map(s => `
+                                            <tr class="hover:bg-slate-50/80 transition-all">
+                                                <td class="p-4 font-semibold text-slate-900">${s.nisn}</td>
+                                                <td class="p-4 text-slate-700">${s.name}</td>
+                                                <td class="p-4 text-slate-600"><span class="px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-semibold">${s.className}</span></td>
+                                                <td class="p-4 font-mono text-xs text-slate-500">${s.password}</td>
+                                                <td class="p-4 text-center">
+                                                    <button onclick="deleteStudent('${s.nisn}')" class="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Hapus Siswa">
+                                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (currentTab === 'guru') {
+                const guruList = db.getGuru();
+                return `
+                    <div class="space-y-6">
+                        <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                            <div>
+                                <h3 class="font-bold text-base text-slate-900">Daftar Akun Guru Piket</h3>
+                                <p class="text-xs text-slate-500">Kelola akun guru piket untuk pencatatan harian.</p>
+                            </div>
+                            <button onclick="openAddGuruModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium shadow transition-all flex items-center gap-2">
+                                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                                <span>Tambah Guru Piket</span>
+                            </button>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse text-sm">
+                                    <thead>
+                                        <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                                            <th class="p-4">Kode Guru</th>
+                                            <th class="p-4">Nama Lengkap & Gelar</th>
+                                            <th class="p-4">Password Login</th>
+                                            <th class="p-4 text-center">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        ${guruList.map(g => `
+                                            <tr class="hover:bg-slate-50/80 transition-all">
+                                                <td class="p-4 font-semibold text-slate-900">${g.code}</td>
+                                                <td class="p-4 text-slate-700">${g.name}</td>
+                                                <td class="p-4 font-mono text-xs text-slate-500">${g.password}</td>
+                                                <td class="p-4 text-center">
+                                                    <button onclick="deleteGuru('${g.code}')" class="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Hapus Guru">
+                                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (currentTab === 'violations') {
+                const rules = db.getRules();
+                const violations = db.getViolations();
+                const students = db.getStudents();
+
+                return `
+                    <div class="space-y-8">
+                        <!-- Manajemen Aturan -->
+                        <div class="space-y-4">
+                            <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                                <div>
+                                    <h3 class="font-bold text-base text-slate-900">Aturan & Bobot Poin Pelanggaran</h3>
+                                    <p class="text-xs text-slate-500">Tentukan jenis pelanggaran beserta besar poin sanksinya.</p>
+                                </div>
+                                <button onclick="openAddRuleModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium shadow transition-all flex items-center gap-2">
+                                    <i data-lucide="plus" class="w-4 h-4"></i>
+                                    <span>Tambah Aturan</span>
+                                </button>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-left border-collapse text-sm">
+                                        <thead>
+                                            <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                                                <th class="p-4">No</th>
+                                                <th class="p-4">Jenis Pelanggaran</th>
+                                                <th class="p-4">Poin</th>
+                                                <th class="p-4 text-center">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            ${rules.map((r, idx) => `
+                                                <tr class="hover:bg-slate-50/80 transition-all">
+                                                    <td class="p-4 text-slate-500">${idx + 1}</td>
+                                                    <td class="p-4 font-medium text-slate-900">${r.name}</td>
+                                                    <td class="p-4"><span class="px-2.5 py-1 bg-rose-100 text-rose-700 rounded-lg text-xs font-bold">+${r.points} Poin</span></td>
+                                                    <td class="p-4 text-center">
+                                                        <button onclick="deleteRule(${r.id})" class="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Hapus Aturan">
+                                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Daftar & Hapus Riwayat Pelanggaran Siswa oleh Admin -->
+                        <div class="space-y-4">
+                            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                                <h3 class="font-bold text-base text-slate-900">Riwayat Catatan Pelanggaran Siswa</h3>
+                                <p class="text-xs text-slate-500">Admin dapat menghapus catatan pelanggaran yang salah atau telah diputihkan.</p>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-left border-collapse text-sm">
+                                        <thead>
+                                            <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs">
+                                                <th class="p-4">Tanggal</th>
+                                                <th class="p-4">NISN</th>
+                                                <th class="p-4">Nama Siswa</th>
+                                                <th class="p-4">Kelas</th>
+                                                <th class="p-4">Bentuk Pelanggaran</th>
+                                                <th class="p-4">Pencatat (Guru)</th>
+                                                <th class="p-4 text-center">Aksi Hapus</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            ${violations.length === 0 ? '<tr><td colspan="7" class="p-8 text-center text-slate-400">Belum ada riwayat pelanggaran.</td></tr>' : ''}
+                                            ${violations.map(v => {
+                                                const st = students.find(s => s.nisn === v.nisn) || { name: 'Siswa Tidak Ditemukan', className: '-' };
+                                                const rl = rules.find(r => r.id === v.ruleId) || { name: 'Pelanggaran Khusus', points: 0 };
+                                                return `
+                                                    <tr class="hover:bg-slate-50/80 transition-all">
+                                                        <td class="p-4 font-medium text-slate-900">${v.date}</td>
+                                                        <td class="p-4 font-semibold text-slate-700">${v.nisn}</td>
+                                                        <td class="p-4 font-bold text-slate-800">${st.name}</td>
+                                                        <td class="p-4 text-slate-600"><span class="px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-semibold">${st.className}</span></td>
+                                                        <td class="p-4 text-slate-700 font-medium">${rl.name} <span class="text-xs font-bold text-rose-600 font-mono">(+${rl.points} Poin)</span></td>
+                                                        <td class="p-4 text-slate-500 text-xs">${v.guruName || v.guruCode || '-'}</td>
+                                                        <td class="p-4 text-center">
+                                                            <button onclick="deleteViolationRecord('${v.id}')" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1">
+                                                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                                                <span>Hapus Catatan</span>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (currentTab === 'recap') {
+                const students = db.getStudents();
+                const classes = [...new Set(students.map(s => s.className))];
+                const selectedClass = recapFilter.class || (classes.length > 0 ? classes[0] : '');
+
+                const classStudents = students.filter(s => s.className === selectedClass);
+                const attendance = db.getAttendance();
+                const violations = db.getViolations();
+                const rules = db.getRules();
+
+                const startDate = recapFilter.startDate;
+                const endDate = recapFilter.endDate;
+
+                const recapData = classStudents.map((s, idx) => {
+                    const studentAtt = attendance.filter(a => {
+                        return a.nisn === s.nisn && (!startDate || a.date >= startDate) && (!endDate || a.date <= endDate);
+                    });
+
+                    const hadir = studentAtt.filter(a => a.status === 'Hadir').length;
+                    const sakit = studentAtt.filter(a => a.status === 'Sakit').length;
+                    const izin = studentAtt.filter(a => a.status === 'Izin').length;
+                    const alpha = studentAtt.filter(a => a.status === 'Alpha').length;
+
+                    const attGurus = [...new Set(studentAtt.map(a => a.guruName || a.guruCode).filter(Boolean))];
+
+                    const studentVios = violations.filter(v => {
+                        return v.nisn === s.nisn && (!startDate || v.date >= startDate) && (!endDate || v.date <= endDate);
+                    });
+
+                    let totalPoints = 0;
+                    const violationDetails = studentVios.map(v => {
+                        const r = rules.find(rule => rule.id === v.ruleId);
+                        const pts = r ? r.points : 0;
+                        totalPoints += pts;
+                        const teacherInfo = v.guruName ? ` (${v.guruName})` : '';
+                        return `${v.date}: ${r ? r.name : 'Pelanggaran'}${teacherInfo} (+${pts} Poin)`;
+                    });
+
+                    const vioGurus = [...new Set(studentVios.map(v => v.guruName || v.guruCode).filter(Boolean))];
+                    const allGurus = [...new Set([...attGurus, ...vioGurus])].join(', ') || '-';
+
+                    return {
+                        no: idx + 1,
+                        nisn: s.nisn,
+                        name: s.name,
+                        className: s.className,
+                        hadir,
+                        sakit,
+                        izin,
+                        alpha,
+                        totalPoints,
+                        guruPiketText: allGurus,
+                        violationDetailsText: violationDetails.length > 0 ? violationDetails.join('; ') : 'Tidak Ada'
+                    };
+                });
+
+                return `
+                    <div class="space-y-6">
+                        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                            <div class="flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                    <h3 class="font-bold text-base text-slate-900">Rekapitulasi Kehadiran & Pelanggaran Siswa</h3>
+                                    <p class="text-xs text-slate-500">Pratinjau data rekapitulasi per kelas sebelum diunduh ke Excel.</p>
+                                </div>
+                                <button onclick="downloadFilteredRecap()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow transition-all flex items-center gap-2">
+                                    <i data-lucide="download" class="w-4 h-4"></i>
+                                    <span>Unduh File Excel Rekap</span>
+                                </button>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-slate-100">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Pilih Kelas</label>
+                                    <select onchange="updateRecapFilter('class', this.value)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800">
+                                        ${classes.length === 0 ? '<option value="">Belum ada kelas</option>' : ''}
+                                        ${classes.map(cls => `<option value="${cls}" ${cls === selectedClass ? 'selected' : ''}>Kelas ${cls}</option>`).join('')}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Periode Waktu</label>
+                                    <div class="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold text-slate-600">
+                                        <button onclick="setRecapPeriod('weekly')" class="py-1.5 rounded-lg transition-all ${recapFilter.type === 'weekly' ? 'bg-indigo-600 text-white shadow' : 'hover:text-slate-900'}">Perminggu</button>
+                                        <button onclick="setRecapPeriod('monthly')" class="py-1.5 rounded-lg transition-all ${recapFilter.type === 'monthly' ? 'bg-indigo-600 text-white shadow' : 'hover:text-slate-900'}">Perbulan</button>
+                                        <button onclick="setRecapPeriod('semester')" class="py-1.5 rounded-lg transition-all ${recapFilter.type === 'semester' ? 'bg-indigo-600 text-white shadow' : 'hover:text-slate-900'}">Persemester</button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Dari Tanggal</label>
+                                    <input type="date" value="${recapFilter.startDate}" onchange="updateRecapFilter('startDate', this.value)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800">
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Sampai Tanggal</label>
+                                    <input type="date" value="${recapFilter.endDate}" onchange="updateRecapFilter('endDate', this.value)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-4 p-6">
+                            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                                <div>
+                                    <h4 class="font-bold text-sm text-slate-900">Pratinjau Data: Kelas ${selectedClass || '-'}</h4>
+                                    <p class="text-xs text-slate-500">Rentang Waktu: <span class="font-semibold text-indigo-600">${recapFilter.startDate || 'Awal'} s/d ${recapFilter.endDate || 'Akhir'}</span></p>
+                                </div>
+                                <span class="text-xs font-medium bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full border border-indigo-100">
+                                    Total Siswa: ${recapData.length} Orang
+                                </span>
+                            </div>
+
+                            <div class="overflow-x-auto custom-scrollbar">
+                                <table class="w-full text-left border-collapse text-xs">
+                                    <thead>
+                                        <tr class="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider">
+                                            <th class="p-3">No</th>
+                                            <th class="p-3">NISN</th>
+                                            <th class="p-3">Nama Siswa</th>
+                                            <th class="p-3 text-center bg-emerald-50/50 text-emerald-800">Hadir</th>
+                                            <th class="p-3 text-center bg-sky-50/50 text-sky-800">Sakit</th>
+                                            <th class="p-3 text-center bg-amber-50/50 text-amber-800">Izin</th>
+                                            <th class="p-3 text-center bg-rose-50/50 text-rose-800">Alpha</th>
+                                            <th class="p-3 text-center">Total Pelanggaran</th>
+                                            <th class="p-3">Guru Piket Pencatat</th>
+                                            <th class="p-3">Catatan Pelanggaran</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        ${recapData.length === 0 ? '<tr><td colspan="10" class="p-8 text-center text-slate-400">Tidak ada data siswa untuk kelas ini.</td></tr>' : ''}
+                                        ${recapData.map(r => `
+                                            <tr class="hover:bg-slate-50/80 transition-all">
+                                                <td class="p-3 font-semibold text-slate-500">${r.no}</td>
+                                                <td class="p-3 font-semibold text-slate-900">${r.nisn}</td>
+                                                <td class="p-3 font-medium text-slate-800">${r.name}</td>
+                                                <td class="p-3 text-center font-bold text-emerald-600 bg-emerald-50/20">${r.hadir}</td>
+                                                <td class="p-3 text-center font-bold text-sky-600 bg-sky-50/20">${r.sakit}</td>
+                                                <td class="p-3 text-center font-bold text-amber-600 bg-amber-50/20">${r.izin}</td>
+                                                <td class="p-3 text-center font-bold text-rose-600 bg-rose-50/20">${r.alpha}</td>
+                                                <td class="p-3 text-center">
+                                                    <span class="px-2.5 py-1 rounded-lg font-bold ${r.totalPoints > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}">
+                                                        ${r.totalPoints} Poin
+                                                    </span>
+                                                </td>
+                                                <td class="p-3 text-slate-600 max-w-xs truncate" title="${r.guruPiketText}">${r.guruPiketText}</td>
+                                                <td class="p-3 text-slate-600 max-w-xs truncate" title="${r.violationDetailsText}">
+                                                    ${r.violationDetailsText}
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function downloadFilteredRecap() {
+            const students = db.getStudents();
+            const selectedClass = recapFilter.class;
+            if (!selectedClass) {
+                showModal('Peringatan', 'Silakan pilih kelas terlebih dahulu!', 'warning');
+                return;
+            }
+
+            const classStudents = students.filter(s => s.className === selectedClass);
+            const attendance = db.getAttendance();
+            const violations = db.getViolations();
+            const rules = db.getRules();
+
+            const startDate = recapFilter.startDate;
+            const endDate = recapFilter.endDate;
+
+            const exportRows = classStudents.map((s, idx) => {
+                const studentAtt = attendance.filter(a => {
+                    return a.nisn === s.nisn && (!startDate || a.date >= startDate) && (!endDate || a.date <= endDate);
+                });
+
+                const hadir = studentAtt.filter(a => a.status === 'Hadir').length;
+                const sakit = studentAtt.filter(a => a.status === 'Sakit').length;
+                const izin = studentAtt.filter(a => a.status === 'Izin').length;
+                const alpha = studentAtt.filter(a => a.status === 'Alpha').length;
+
+                const attGurus = [...new Set(studentAtt.map(a => a.guruName || a.guruCode).filter(Boolean))];
+
+                const studentVios = violations.filter(v => {
+                    return v.nisn === s.nisn && (!startDate || v.date >= startDate) && (!endDate || v.date <= endDate);
+                });
+
+                let totalPoints = 0;
+                const violationList = studentVios.map(v => {
+                    const r = rules.find(rule => rule.id === v.ruleId);
+                    const pts = r ? r.points : 0;
+                    totalPoints += pts;
+                    const tName = v.guruName ? ` - Guru: ${v.guruName}` : '';
+                    return `[${v.date}] ${r ? r.name : 'Pelanggaran'}${tName} (${pts} Poin)`;
+                });
+
+                const vioGurus = [...new Set(studentVios.map(v => v.guruName || v.guruCode).filter(Boolean))];
+                const allGurus = [...new Set([...attGurus, ...vioGurus])].join(', ') || '-';
+
+                return {
+                    'No': idx + 1,
+                    'NISN': s.nisn,
+                    'Nama Siswa': s.name,
+                    'Kelas': s.className,
+                    'Periode Rekap': `${startDate || 'Awal'} s/d ${endDate || 'Akhir'}`,
+                    'Hadir': hadir,
+                    'Sakit': sakit,
+                    'Izin': izin,
+                    'Alpha': alpha,
+                    'Total Poin Pelanggaran': totalPoints,
+                    'Guru Piket Pengisi': allGurus,
+                    'Rincian Pelanggaran': violationList.length > 0 ? violationList.join(' | ') : 'Tidak Ada Pelanggaran'
+                };
+            });
+
+            const ws = XLSX.utils.json_to_sheet(exportRows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, `Rekap ${selectedClass}`);
+            XLSX.writeFile(wb, `Rekap_Kelas_${selectedClass}_${recapFilter.type}_${startDate}_sd_${endDate}.xlsx`);
+        }
+
+        function renderGuruLayout(user) {
+            const students = db.getStudents();
+            const rules = db.getRules();
+            const classes = [...new Set(students.map(s => s.className))];
+
+            if (!guruSelectedClass && classes.length > 0) {
+                guruSelectedClass = classes[0];
+            }
+
+            const filteredStudents = students.filter(s => s.className === guruSelectedClass);
+            const attendance = db.getAttendance();
+            const violations = db.getViolations();
+
+            // Daily Summary per Class Calculation
+            const dailyClassSummaries = classes.map(cls => {
+                const clsStudents = students.filter(s => s.className === cls);
+                const clsNisns = clsStudents.map(s => s.nisn);
+                
+                const clsAtt = attendance.filter(a => a.date === guruSelectedDate && clsNisns.includes(a.nisn));
+                const hadir = clsAtt.filter(a => a.status === 'Hadir').length;
+                const sakit = clsAtt.filter(a => a.status === 'Sakit').length;
+                const izin = clsAtt.filter(a => a.status === 'Izin').length;
+                const alpha = clsAtt.filter(a => a.status === 'Alpha').length;
+
+                const clsVioCount = violations.filter(v => v.date === guruSelectedDate && clsNisns.includes(v.nisn)).length;
+
+                return {
+                    className: cls,
+                    totalStudents: clsStudents.length,
+                    recorded: clsAtt.length,
+                    hadir, sakit, izin, alpha,
+                    violations: clsVioCount
+                };
+            });
+
+            return `
+                <div class="flex flex-col h-full bg-slate-50">
+                    <header class="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-indigo-600 rounded-xl text-white">
+                                <i data-lucide="user-check" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-base font-bold text-slate-900">Panel Guru Piket</h1>
+                                <p class="text-xs text-slate-500">${user.name} (${user.code})</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <!-- Tab Switcher Guru Piket -->
+                            <div class="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+                                <button onclick="setGuruTab('entry')" class="px-4 py-1.5 rounded-lg transition-all ${guruActiveTab === 'entry' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'}">
+                                    Pencatatan Piket
+                                </button>
+                                <button onclick="setGuruTab('recap')" class="px-4 py-1.5 rounded-lg transition-all ${guruActiveTab === 'recap' ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'}">
+                                    Rekapan & Statistik
+                                </button>
+                            </div>
+                            <button onclick="logout()" class="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-semibold transition-all flex items-center gap-2">
+                                <i data-lucide="log-out" class="w-4 h-4"></i>
+                                <span>Keluar</span>
+                            </button>
+                        </div>
+                    </header>
+
+                    <main class="flex-1 overflow-y-auto p-8 max-w-7xl mx-auto w-full space-y-8 custom-scrollbar">
+                        ${guruActiveTab === 'entry' ? renderGuruEntrySection(classes, filteredStudents, attendance, rules, violations) : renderGuruRecapSection(dailyClassSummaries)}
+                    </main>
+                </div>
+            `;
+        }
+
+        function setGuruTab(tab) {
+            guruActiveTab = tab;
+            render();
+        }
+
+        function renderGuruEntrySection(classes, filteredStudents, attendance, rules, violations) {
+            return `
+                <!-- Date & Class Filter Bar -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Pencatatan Piket Harian</h2>
+                        <p class="text-xs text-slate-500 mt-0.5">Siswa yang tidak diubah statusnya otomatis dianggap <b>Hadir</b>.</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Tanggal Piket</label>
+                            <input type="date" value="${guruSelectedDate}" onchange="updateGuruDate(this.value)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Pilih Kelas</label>
+                            <select onchange="updateGuruClass(this.value)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500">
+                                ${classes.length === 0 ? '<option value="">Belum ada kelas</option>' : ''}
+                                ${classes.map(cls => `<option value="${cls}" ${cls === guruSelectedClass ? 'selected' : ''}>Kelas ${cls}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attendance Table for Selected Class -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                            <h2 class="font-bold text-base text-slate-900 flex items-center gap-2">
+                                <i data-lucide="check-square" class="w-5 h-5 text-indigo-600"></i>
+                                <span>Presensi Siswa - Kelas ${guruSelectedClass || '-'}</span>
+                            </h2>
+                            <p class="text-xs text-slate-500 mt-0.5">Ubah status hanya bagi siswa Sakit / Izin / Alpha, lalu tekan simpan.</p>
+                        </div>
+                        ${filteredStudents.length > 0 ? `
+                            <button onclick="saveAllAttendance()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition-all flex items-center gap-2">
+                                <i data-lucide="save" class="w-4 h-4"></i>
+                                <span>Simpan Semua Presensi Kelas</span>
+                            </button>
+                        ` : ''}
+                    </div>
+
+                    <div class="overflow-x-auto custom-scrollbar">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs">
+                                    <th class="p-3">NISN</th>
+                                    <th class="p-3">Nama Siswa</th>
+                                    <th class="p-3">Status Saat Ini</th>
+                                    <th class="p-3">Pilih Kehadiran</th>
+                                    <th class="p-3">Keterangan / Catatan</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                ${filteredStudents.length === 0 ? '<tr><td colspan="5" class="p-8 text-center text-slate-400">Tidak ada data siswa untuk kelas ini.</td></tr>' : ''}
+                                ${filteredStudents.map(s => {
+                                    const existingAtt = attendance.find(a => a.nisn === s.nisn && a.date === guruSelectedDate);
+                                    const currentStatus = existingAtt ? existingAtt.status : 'Hadir';
+                                    return `
+                                        <tr class="hover:bg-slate-50/50">
+                                            <td class="p-3 font-semibold text-slate-900">${s.nisn}</td>
+                                            <td class="p-3 text-slate-700 font-medium">${s.name}</td>
+                                            <td class="p-3">
+                                                <span class="px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 ${
+                                                    currentStatus === 'Hadir' ? 'bg-emerald-100 text-emerald-700' :
+                                                    currentStatus === 'Sakit' ? 'bg-sky-100 text-sky-700' :
+                                                    currentStatus === 'Izin' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                                                }">
+                                                    <i data-lucide="check" class="w-3 h-3"></i> ${currentStatus}
+                                                </span>
+                                            </td>
+                                            <td class="p-3">
+                                                <select id="status_${s.nisn}" class="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500">
+                                                    <option value="Hadir" ${currentStatus === 'Hadir' ? 'selected' : ''}>Hadir (Default)</option>
+                                                    <option value="Sakit" ${currentStatus === 'Sakit' ? 'selected' : ''}>Sakit</option>
+                                                    <option value="Izin" ${currentStatus === 'Izin' ? 'selected' : ''}>Izin</option>
+                                                    <option value="Alpha" ${currentStatus === 'Alpha' ? 'selected' : ''}>Alpha</option>
+                                                </select>
+                                            </td>
+                                            <td class="p-3">
+                                                <input type="text" id="note_${s.nisn}" value="${existingAtt ? existingAtt.notes || '' : ''}" placeholder="Catatan opsional (alasan, dll)" class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Violation Section for Selected Class -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <h2 class="font-bold text-base text-slate-900 flex items-center gap-2">
+                        <i data-lucide="alert-octagon" class="w-5 h-5 text-rose-600"></i>
+                        <span>Pencatatan Pelanggaran Siswa (Kelas ${guruSelectedClass || '-'})</span>
+                    </h2>
+                    <form onsubmit="handleGuruViolation(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Pilih Siswa</label>
+                            <select id="vNisn" required class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium">
+                                ${filteredStudents.length === 0 ? '<option value="">Tidak ada siswa di kelas ini</option>' : ''}
+                                ${filteredStudents.map(s => `<option value="${s.nisn}">${s.name} (${s.nisn})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Jenis Pelanggaran</label>
+                            <select id="vRuleId" required class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium">
+                                ${rules.map(r => `<option value="${r.id}">${r.name} (+${r.points} Poin)</option>`).join('')}
+                            </select>
+                        </div>
+                        <button type="submit" class="py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-2">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                            <span>Catat Pelanggaran</span>
+                        </button>
+                    </form>
+
+                    <!-- Daftar Pelanggaran Terdaftar Hari Ini pada Kelas Ini (dengan Opsi Hapus) -->
+                    <div class="pt-4 border-t border-slate-100">
+                        <h3 class="text-xs font-bold text-slate-700 mb-3">Catatan Pelanggaran Terdaftar Hari Ini (${guruSelectedDate})</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                                        <th class="p-2.5">NISN</th>
+                                        <th class="p-2.5">Nama Siswa</th>
+                                        <th class="p-2.5">Jenis Pelanggaran</th>
+                                        <th class="p-2.5 text-center">Aksi Hapus</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${(() => {
+                                        const classNisns = filteredStudents.map(s => s.nisn);
+                                        const todayClassVios = violations.filter(v => v.date === guruSelectedDate && classNisns.includes(v.nisn));
+                                        if (todayClassVios.length === 0) {
+                                            return '<tr><td colspan="4" class="p-3 text-center text-slate-400">Belum ada pencatatan pelanggaran hari ini untuk kelas ini.</td></tr>';
+                                        }
+                                        return todayClassVios.map(v => {
+                                            const st = filteredStudents.find(s => s.nisn === v.nisn) || { name: '-' };
+                                            const rl = rules.find(r => r.id === v.ruleId) || { name: '-', points: 0 };
+                                            return `
+                                                <tr>
+                                                    <td class="p-2.5 font-semibold text-slate-800">${v.nisn}</td>
+                                                    <td class="p-2.5 font-medium text-slate-700">${st.name}</td>
+                                                    <td class="p-2.5 text-slate-600">${rl.name} (+${rl.points} Poin)</td>
+                                                    <td class="p-2.5 text-center">
+                                                        <button onclick="deleteViolationRecord('${v.id}')" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold rounded-lg text-xs transition-all">
+                                                            Hapus
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            `;
+                                        }).join('');
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderGuruRecapSection(dailyClassSummaries) {
+            return `
+                <div class="space-y-6">
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                            <h2 class="text-base font-bold text-slate-900">Rekapan & Statistik Absensi Per Kelas</h2>
+                            <p class="text-xs text-slate-500 mt-0.5">Melihat ringkasan total kehadiran dan pelanggaran harian siswa.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Pilih Tanggal</label>
+                            <input type="date" value="${guruSelectedDate}" onchange="updateGuruDate(this.value)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                    </div>
+
+                    <!-- Daily Class Summary Recapitulation Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        ${dailyClassSummaries.map(s => `
+                            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <span class="font-bold text-base text-slate-900">Kelas ${s.className}</span>
+                                    <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.recorded === s.totalStudents ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">
+                                        ${s.recorded}/${s.totalStudents} Absen
+                                    </span>
+                                </div>
+                                <div class="grid grid-cols-4 gap-2 text-center text-xs">
+                                    <div class="p-2.5 bg-emerald-50 rounded-xl"><p class="text-emerald-700 font-bold text-base">${s.hadir}</p><p class="text-[10px] text-emerald-600 font-medium">Hadir</p></div>
+                                    <div class="p-2.5 bg-sky-50 rounded-xl"><p class="text-sky-700 font-bold text-base">${s.sakit}</p><p class="text-[10px] text-sky-600 font-medium">Sakit</p></div>
+                                    <div class="p-2.5 bg-amber-50 rounded-xl"><p class="text-amber-700 font-bold text-base">${s.izin}</p><p class="text-[10px] text-amber-600 font-medium">Izin</p></div>
+                                    <div class="p-2.5 bg-rose-50 rounded-xl"><p class="text-rose-700 font-bold text-base">${s.alpha}</p><p class="text-[10px] text-rose-600 font-medium">Alpha</p></div>
+                                </div>
+                                <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                                    <span>Pelanggaran Terpenuhi:</span>
+                                    <span class="font-bold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-100">${s.violations} Catatan</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateGuruClass(val) {
+            guruSelectedClass = val;
+            render();
+        }
+
+        function updateGuruDate(val) {
+            guruSelectedDate = val;
+            render();
+        }
+
+        function saveAllAttendance() {
+            const session = db.getSession();
+            const teacher = session.user || {};
+            const students = db.getStudents().filter(s => s.className === guruSelectedClass);
+
+            if (students.length === 0) {
+                showModal('Peringatan', 'Tidak ada siswa di kelas ini.', 'warning');
+                return;
+            }
+
+            let attendance = db.getAttendance();
+            const date = guruSelectedDate;
+
+            // Remove existing record for this class & date to overwrite completely
+            const nisnList = students.map(s => s.nisn);
+            attendance = attendance.filter(a => !(a.date === date && nisnList.includes(a.nisn)));
+
+            students.forEach(s => {
+                const statusEl = document.getElementById(`status_${s.nisn}`);
+                const noteEl = document.getElementById(`note_${s.nisn}`);
+
+                const status = statusEl ? statusEl.value : 'Hadir';
+                const notes = noteEl ? noteEl.value : '';
+
+                attendance.push({
+                    id: 'a_' + Date.now() + Math.random(),
+                    nisn: s.nisn,
+                    date,
+                    status,
+                    notes,
+                    guruCode: teacher.code || '',
+                    guruName: teacher.name || 'Guru Piket'
+                });
+            });
+
+            db.setAttendance(attendance);
+            showModal('Berhasil', `Seluruh presensi siswa Kelas ${guruSelectedClass} untuk tanggal ${date} berhasil disimpan!`, 'success');
+        }
+
+        function handleGuruViolation(e) {
+            e.preventDefault();
+            const session = db.getSession();
+            const teacher = session.user || {};
+            const nisnEl = document.getElementById('vNisn');
+            const ruleEl = document.getElementById('vRuleId');
+
+            const nisn = nisnEl ? nisnEl.value : '';
+            const ruleId = ruleEl ? parseInt(ruleEl.value) : 1;
+            const date = guruSelectedDate;
+
+            if (!nisn) {
+                showModal('Peringatan', 'Silakan pilih siswa terlebih dahulu!', 'warning');
+                return;
+            }
+
+            const violations = db.getViolations();
+            violations.push({
+                id: 'v_' + Date.now(),
+                nisn,
+                ruleId,
+                date,
+                note: '',
+                guruCode: teacher.code || '',
+                guruName: teacher.name || 'Guru Piket'
+            });
+            db.setViolations(violations);
+            showModal('Berhasil', 'Pelanggaran berhasil dicatat.', 'success');
+        }
+
+        function renderSiswaLayout(user) {
+            const attendance = db.getAttendance().filter(a => a.nisn === user.nisn);
+            const violations = db.getViolations().filter(v => v.nisn === user.nisn);
+            const rules = db.getRules();
+
+            let totalPoints = 0;
+            const detailedViolations = violations.map(v => {
+                const rule = rules.find(r => r.id === v.ruleId) || { name: 'Pelanggaran Lain', points: 0 };
+                totalPoints += rule.points;
+                return { ...v, ruleName: rule.name, points: rule.points };
+            });
+
+            return `
+                <div class="flex flex-col h-full bg-slate-50">
+                    <header class="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-indigo-600 rounded-xl text-white">
+                                <i data-lucide="user" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-base font-bold text-slate-900">${user.name}</h1>
+                                <p class="text-xs text-slate-500">NISN: ${user.nisn} | Kelas: ${user.className}</p>
+                            </div>
+                        </div>
+                        <button onclick="logout()" class="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-semibold transition-all flex items-center gap-2">
+                            <i data-lucide="log-out" class="w-4 h-4"></i>
+                            <span>Keluar</span>
+                        </button>
+                    </header>
+
+                    <main class="flex-1 overflow-y-auto p-8 max-w-5xl mx-auto w-full space-y-8 custom-scrollbar">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                <div class="p-4 bg-indigo-50 text-indigo-600 rounded-2xl"><i data-lucide="calendar-check" class="w-8 h-8"></i></div>
+                                <div><p class="text-xs text-slate-500 font-semibold uppercase">Total Kehadiran Tercatat</p><h3 class="text-2xl font-bold text-slate-900">${attendance.length} Hari</h3></div>
+                            </div>
+                            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                <div class="p-4 bg-rose-50 text-rose-600 rounded-2xl"><i data-lucide="alert-circle" class="w-8 h-8"></i></div>
+                                <div><p class="text-xs text-slate-500 font-semibold uppercase">Total Poin Pelanggaran</p><h3 class="text-2xl font-bold text-rose-600">${totalPoints} Poin</h3></div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                            <h3 class="font-bold text-base text-slate-900">Riwayat Kehadiran</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse text-sm">
+                                    <thead>
+                                        <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                                            <th class="p-3">Tanggal</th>
+                                            <th class="p-3">Status</th>
+                                            <th class="p-3">Keterangan</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        ${attendance.length === 0 ? '<tr><td colspan="3" class="p-4 text-center text-slate-400">Belum ada catatan kehadiran.</td></tr>' : ''}
+                                        ${attendance.map(a => `
+                                            <tr>
+                                                <td class="p-3 font-medium text-slate-900">${a.date}</td>
+                                                <td class="p-3">
+                                                    <span class="px-2.5 py-1 rounded-lg text-xs font-bold ${
+                                                        a.status === 'Hadir' ? 'bg-emerald-100 text-emerald-700' :
+                                                        a.status === 'Sakit' ? 'bg-sky-100 text-sky-700' :
+                                                        a.status === 'Izin' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                                                    }">${a.status}</span>
+                                                </td>
+                                                <td class="p-3 text-slate-600 text-xs">${a.notes || '-'}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                            <h3 class="font-bold text-base text-slate-900">Riwayat Pelanggaran & Sanksi Poin</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse text-sm">
+                                    <thead>
+                                        <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                                            <th class="p-3">Tanggal</th>
+                                            <th class="p-3">Jenis Pelanggaran</th>
+                                            <th class="p-3">Poin</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        ${detailedViolations.length === 0 ? '<tr><td colspan="3" class="p-4 text-center text-slate-400">Bersih! Tidak ada catatan pelanggaran.</td></tr>' : ''}
+                                        ${detailedViolations.map(v => `
+                                            <tr>
+                                                <td class="p-3 font-medium text-slate-900">${v.date}</td>
+                                                <td class="p-3 text-slate-700">${v.ruleName}</td>
+                                                <td class="p-3"><span class="px-2.5 py-1 bg-rose-100 text-rose-700 rounded-lg text-xs font-bold">+${v.points}</span></td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        function downloadStudentTemplate() {
+            const templateData = [
+                { NISN: '1004', 'Nama Lengkap': 'Contoh Siswa', Kelas: '10 IPA 1', Password: '123' }
+            ];
+            const ws = XLSX.utils.json_to_sheet(templateData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Template Siswa");
+            XLSX.writeFile(wb, "Template_Data_Siswa.xlsx");
+        }
+
+        function handleStudentUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                    const students = db.getStudents();
+                    let addedCount = 0;
+                    jsonData.forEach(row => {
+                        const nisn = String(row.NISN || row.nisn || '');
+                        const name = row['Nama Lengkap'] || row.nama || '';
+                        const className = row.Kelas || row.kelas || '';
+                        const password = String(row.Password || row.password || '123');
+
+                        if (nisn && name && className) {
+                            if (!students.some(s => s.nisn === nisn)) {
+                                students.push({ nisn, name, className, password });
+                                addedCount++;
+                            }
+                        }
+                    });
+
+                    db.setStudents(students);
+                    showModal('Berhasil Import', `Berhasil menambahkan ${addedCount} data siswa dari Excel!`, 'success');
+                } catch (err) {
+                    showModal('Gagal', 'Format file Excel tidak valid.', 'error');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function deleteStudent(nisn) {
+            showModal('Konfirmasi Hapus', 'Apakah Anda yakin ingin menghapus data siswa ini?', 'warning', () => {
+                let students = db.getStudents();
+                students = students.filter(s => s.nisn !== nisn);
+                db.setStudents(students);
+                closeModal();
+                render();
+            });
+        }
+
+        function deleteGuru(code) {
+            showModal('Konfirmasi Hapus', 'Apakah Anda yakin ingin menghapus akun guru piket ini?', 'warning', () => {
+                let guru = db.getGuru();
+                guru = guru.filter(g => g.code !== code);
+                db.setGuru(guru);
+                closeModal();
+                render();
+            });
+        }
+
+        function deleteRule(id) {
+            showModal('Konfirmasi Hapus', 'Apakah Anda yakin ingin menghapus aturan poin pelanggaran ini?', 'warning', () => {
+                let rules = db.getRules();
+                rules = rules.filter(r => r.id !== id);
+                db.setRules(rules);
+                closeModal();
+                render();
+            });
+        }
+
+        function deleteViolationRecord(violationId) {
+            showModal('Konfirmasi Hapus Pelanggaran', 'Apakah Anda yakin ingin menghapus catatan pelanggaran siswa ini?', 'warning', () => {
+                let violations = db.getViolations();
+                violations = violations.filter(v => v.id !== violationId);
+                db.setViolations(violations);
+                closeModal();
+                render();
+            });
+        }
+
+        function openAddStudentModal() {
+            showModal('Tambah Siswa Manual', `
+                <form onsubmit="saveNewStudent(event)" class="space-y-4 text-left pt-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">NISN</label>
+                        <input type="text" id="newNisn" required class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Nama Lengkap</label>
+                        <input type="text" id="newName" required class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Kelas</label>
+                        <input type="text" id="newClass" required placeholder="Contoh: 10 IPA 1" class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Password Login Siswa</label>
+                        <input type="text" id="newPass" required value="123" class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <button type="submit" class="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold">Simpan Siswa</button>
+                </form>
+            `, 'custom');
+        }
+
+        function saveNewStudent(e) {
+            e.preventDefault();
+            const nisnEl = document.getElementById('newNisn');
+            const nameEl = document.getElementById('newName');
+            const classEl = document.getElementById('newClass');
+            const passEl = document.getElementById('newPass');
+
+            const nisn = nisnEl ? nisnEl.value : '';
+            const name = nameEl ? nameEl.value : '';
+            const className = classEl ? classEl.value : '';
+            const password = passEl ? passEl.value : '123';
+
+            let students = db.getStudents();
+            if (students.some(s => s.nisn === nisn)) {
+                showModal('Peringatan', 'NISN sudah terdaftar!', 'error');
+                return;
+            }
+            students.push({ nisn, name, className, password });
+            db.setStudents(students);
+            closeModal();
+            render();
+        }
+
+        function openAddGuruModal() {
+            showModal('Tambah Guru Piket', `
+                <form onsubmit="saveNewGuru(event)" class="space-y-4 text-left pt-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Kode Guru</label>
+                        <input type="text" id="gCode" required placeholder="Contoh: GP03" class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Nama Lengkap & Gelar</label>
+                        <input type="text" id="gName" required placeholder="Contoh: Budi, S.Pd" class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Password Login</label>
+                        <input type="text" id="gPass" required value="gp123" class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <button type="submit" class="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold">Simpan Guru Piket</button>
+                </form>
+            `, 'custom');
+        }
+
+        function saveNewGuru(e) {
+            e.preventDefault();
+            const codeEl = document.getElementById('gCode');
+            const nameEl = document.getElementById('gName');
+            const passEl = document.getElementById('gPass');
+
+            const code = codeEl ? codeEl.value : '';
+            const name = nameEl ? nameEl.value : '';
+            const password = passEl ? passEl.value : 'gp123';
+
+            let guru = db.getGuru();
+            guru.push({ code, name, password });
+            db.setGuru(guru);
+            closeModal();
+            render();
+        }
+
+        function openAddRuleModal() {
+            showModal('Tambah Aturan Pelanggaran', `
+                <form onsubmit="saveNewRule(event)" class="space-y-4 text-left pt-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Nama / Bentuk Pelanggaran</label>
+                        <input type="text" id="rName" required class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Besar Poin</label>
+                        <input type="number" id="rPoints" required value="10" class="w-full px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <button type="submit" class="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold">Simpan Aturan</button>
+                </form>
+            `, 'custom');
+        }
+
+        function saveNewRule(e) {
+            e.preventDefault();
+            const nameEl = document.getElementById('rName');
+            const pointsEl = document.getElementById('rPoints');
+
+            const name = nameEl ? nameEl.value : '';
+            const points = pointsEl ? parseInt(pointsEl.value) : 10;
+
+            let rules = db.getRules();
+            const newId = rules.length ? Math.max(...rules.map(r => r.id)) + 1 : 1;
+            rules.push({ id: newId, name, points });
+            db.setRules(rules);
+            closeModal();
+            render();
+        }
+
+        function renderModalComponent() {
+            return `
+                <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
+                        ${modalState.type === 'custom' ? `
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-lg text-slate-900">${modalState.title}</h3>
+                                <button onclick="closeModal()" class="p-1 hover:bg-slate-100 rounded-lg"><i data-lucide="x" class="w-5 h-5 text-slate-500"></i></button>
+                            </div>
+                            <div>${modalState.message}</div>
+                        ` : `
+                            <div class="text-center space-y-4">
+                                <div class="w-12 h-12 rounded-full mx-auto flex items-center justify-center ${modalState.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}">
+                                    <i data-lucide="${modalState.type === 'error' ? 'alert-circle' : 'check-circle'}" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-lg text-slate-900">${modalState.title}</h3>
+                                    <p class="text-sm text-slate-600 mt-1">${modalState.message}</p>
+                                </div>
+                                <div class="flex gap-2 pt-2">
+                                    ${modalState.onConfirm ? `
+                                        <button onclick="modalState.onConfirm()" class="flex-1 py-2.5 bg-rose-600 text-white font-semibold rounded-xl text-sm">Ya, Lanjutkan</button>
+                                        <button onclick="closeModal()" class="flex-1 py-2.5 bg-slate-100 text-slate-700 font-semibold rounded-xl text-sm">Batal</button>
+                                    ` : `
+                                        <button onclick="closeModal()" class="w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-xl text-sm">Mengerti</button>
+                                    `}
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        window.onload = function() {
+            render();
+        };
+    </script>
+</body>
+</html>
